@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>QuickMsg</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="{{ url_for('static', path='styles/style.css') }}?v=20260331a" rel="stylesheet">
+</head>
+<body>
+    <div class="page-shell">
+        <header>
+            <div class="menu">
+                <div class="brand-block">
+                    <div class="brand-name">QuickMsg | Login</div>
+                    <p class="brand-copy">Вход в аккаунт для доступа к личным сообщениям.</p>
+                </div>
+
+                <div class="back-buttons">
+                    <a href="/" class="nav-link">Вернуться</a>
+                </div>
+            </div>
+        </header>
+
+        <section class="hero-section">
+            <div class="hero-card">
+                <div class="hero-copy">
+                    <span class="eyebrow">Welcome back</span>
+                    <h1>Войдите и продолжите общение</h1>
+                    <p>Авторизуйтесь, чтобы открыть список чатов и отправлять сообщения.</p>
+                </div>
+
+                <div class="auth-card">
+                    <form method="post" class="auth-form">
+                        <label for="username">Имя пользователя</label>
+                        <input id="username" type="text" name="username" placeholder="Введите имя пользователя" required>
+                        <label for="password">Пароль</label>
+                        <input id="password" type="password" name="password" placeholder="Введите пароль" required>
+                        <button type="submit" class="submit-button">Войти</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </div>
+</body>
+</html>

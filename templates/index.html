@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>QuickMsg</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="{{ url_for('static', path='styles/style.css') }}?v=20260328a" rel="stylesheet">
+</head>
+<body data-authenticated="{{ 'true' if is_authenticated else 'false' }}">
+    <div class="page-shell">
+        <header>
+            <div class="menu">
+                <div class="brand-block">
+                    <div class="brand-name">QuickMsg</div>
+                    <p class="brand-copy">Лёгкий мессенджер для быстрых личных диалогов.</p>
+                </div>
+
+                <div class="auth-buttons">
+                    {% if is_authenticated %}
+                        <a href="/profile" class="nav-link">Профиль</a>
+                        <a href="/logout" class="nav-link">Выйти</a>
+                    {% else %}
+                        <a href="/login" class="nav-link">Логин</a>
+                        <a href="/register" class="nav-link nav-link-accent">Регистрация</a>
+                    {% endif %}
+                </div>
+            </div>
+        </header>
+
+        <section class="hero-section">
+            <div class="hero-card">
+                <div class="hero-copy">
+                    <span class="eyebrow">Личные сообщения</span>
+                    <h1>Найдите пользователя и начните чат в один клик</h1>
+                    <p>Поиск показывает пользователей, а справа сразу открывается выбранный диалог с историей сообщений.</p>
+                </div>
+
+                <div class="search-panel">
+                    <label for="search" class="search-label">Поиск пользователей</label>
+                    <div class="search-box">
+                        <input type="text" name="query" id="search" placeholder="Введите имя пользователя...">
+                    </div>
+                    <section id="search-results" class="search-results" aria-live="polite"></section>
+                </div>
+            </div>
+        </section>
+
+        <main class="app-main">
+            <section class="chat-shell">
+                <aside class="chat-sidebar">
+                    <div class="sidebar-heading">
+                        <div>
+                            <span class="eyebrow">Main</span>
+                            <h2>Чаты</h2>
+                        </div>
+                        <p id="sidebar-status" class="sidebar-status">Загружаем список диалогов...</p>
+                    </div>
+
+                    <div id="chat-list" class="chat-list"></div>
+                </aside>
+
+                <section class="chat-panel">
+                    <div id="chat-empty-state" class="chat-empty-state">
+                        <span class="eyebrow">Quick start</span>
+                        <h2>Выберите диалог</h2>
+                        <p>Найдите пользователя сверху или откройте существующий чат из списка слева.</p>
+                    </div>
+
+                    <div id="chat-view" class="chat-view hidden">
+                        <div class="chat-header">
+                            <div>
+                                <span class="eyebrow">Активный чат</span>
+                                <h2 id="chat-title">Чат</h2>
+                            </div>
+                            <p id="chat-subtitle" class="chat-subtitle">Сообщения синхронизируются в реальном времени.</p>
+                        </div>
+
+                        <div id="messages" class="messages"></div>
+
+                        <form id="message-form" class="message-form">
+                            <label for="message-input" class="sr-only">Сообщение</label>
+                            <input id="message-input" type="text" placeholder="Напишите сообщение..." autocomplete="off">
+                            <button type="submit" class="submit-button">Отправить</button>
+                        </form>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', path='scrypts/scrypts.js') }}?v=20260328a"></script>
+</body>
+</html>
