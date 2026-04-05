@@ -1,67 +1,111 @@
 from pathlib import Path
 import sys
+from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from fastapi import HTTPException
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from main import app
-from db import get_db
+from models.chat_models import Chat
+from models.members_table import ChatParticipant
+from models.messages import Message
+from models.users_models import Users
+from routers.create_chat import get_private_chat_between_users, get_chat_messages
+
 
 class FakeResult:
-    def __init__(self, user):
-        self._user = user
+    def __init__(self, value):
+        self.value = value
 
     def scalar_one_or_none(self):
-        return self._user
+        return self.value
 
 
-class FakeAsyncSession:
-    def __init__(self):
-        self.users_by_username = {}
-        self._next_id = 1
+class FakeScalarsResult:
+    def __init__(self, values):
+        self.values = values
 
-    async def execute(self, statement):
-        params = statement.compile().params
-        username = next(iter(params.values()), None)
-        user = self.users_by_username.get(username)
-        return FakeResult(user)
+    def scalars(self):
+        return self
 
-    def add(self, user):
-        if user.id is None:
-            user.id = self._next_id
-            self._next_id += 1
-        self.users_by_username[user.username] = user
-
-    async def commit(self):
-        return None
-
-    async def refresh(self, user):
-        return user
+    def all(self):
+        return self.values
 
 
-@pytest.fixture
-def fake_session():
-    return FakeAsyncSession()
+@pytest.mark.anyio
+async def test_get_private_chat_between_users_returns_existing_private_chat():
+    chat = Chat()
+    chat.id = 10
+
+    db_session = AsyncMock()
+    db_session.execute.return_value = FakeResult(chat)
+
+    result = await get_private_chat_between_users(1, 2, db_session)
+
+    assert result is not None
+    assert result.id == chat.id
+    db_session.execute.assert_awaited_once()
 
 
-@pytest.fixture
-async def client(fake_session):
-    async def override_get_db():
-        yield fake_session
+@pytest.mark.anyio
+async def test_get_private_chat_between_users_returns_none_when_chat_does_not_exist():
+    db_session = AsyncMock()
+    db_session.execute.return_value = FakeResult(None)
 
-    app.dependency_overrides[get_db] = override_get_db
+    result = await get_private_chat_between_users(1, 2, db_session)
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-        follow_redirects=False,
-    ) as async_client:
-        yield async_client
+    assert result is None
+    db_session.execute.assert_awaited_once()
 
-    app.dependency_overrides.clear()
+@pytest.mark.anyio
+async def test_get_chat_messages_returns_403_when_user_is_not_a_participant():
+    current_user = Users(id=1, username="sad", password="secret")
+    db_session = AsyncMock()
+    db_session.execute.return_value = FakeResult(None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_chat_messages(1, current_user, db_session)
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "Forbidden"
+    db_session.execute.assert_awaited_once()
 
 
+@pytest.mark.anyio
+async def test_get_chat_messages_returns_serialized_messages_for_participant():
+    participant = ChatParticipant()
+    participant.chat_id = 1
+    participant.user_id = 1
+
+    current_user = Users(id=1, username="sad", password="secret")
+    message = Message(
+        id=10,
+        chat_id=1,
+        sender_id=1,
+        text="hello",
+        created_at=datetime(2024, 1, 1, 12, 0, 0),
+    )
+
+    db_session = AsyncMock()
+    db_session.execute.side_effect = [
+        FakeResult(participant),
+        FakeScalarsResult([message]),
+    ]
+
+    result = await get_chat_messages(1, current_user, db_session)
+
+    assert result == [
+        {
+            "id": 10,
+            "chat_id": 1,
+            "text": "hello",
+            "sender_id": 1,
+            "created_at": "2024-01-01T12:00:00",
+            "is_own": True,
+        }
+    ]
+    assert db_session.execute.await_count == 2
