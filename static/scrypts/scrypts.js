@@ -15,6 +15,7 @@ const isAuthenticated = document.body.dataset.authenticated === "true";
 
 const state = {
     activeChatId: null,
+    activeParticipantId: null,
     chats: [],
     currentUser: null,
     messageIds: new Set(),
@@ -23,6 +24,7 @@ const state = {
     notificationSocket: null,
     searchRequestId: 0,
     socket: null,
+    statusSocket: null,
 };
 
 function escapeHtml(value) {
@@ -259,10 +261,107 @@ function appendMessage(message) {
     scrollMessagesToBottom();
 }
 
+function formatLastSeen(dateString) {
+    if (!dateString) {
+        return "не в сети";
+    }
+
+    const date = new Date(dateString);
+    const now = new Date();
+
+    const diff = Math.floor((now - date) / 1000);
+
+    if (diff < 60) return "был только что";
+    if (diff < 3600) return `был ${Math.floor(diff/60)} мин назад`;
+    if (diff < 86400) return `был ${Math.floor(diff/3600)} ч назад`;
+
+    return date.toLocaleDateString();
+}
+
+function getStatusText(data) {
+    if (!data) {
+        return "статус недоступен";
+    }
+
+    if (data.status === "online") {
+        return "в сети";
+    }
+
+    return formatLastSeen(data.last_seen);
+}
+
+function setChatSubtitle(chat, statusText = null) {
+    if (!chat) {
+        return;
+    }
+
+    chatSubtitle.textContent = statusText
+        ? `@${chat.participant.username} - ${statusText}`
+        : `Чат с @${chat.participant.username}`;
+}
+
+function teardownStatusSocket() {
+    if (!state.statusSocket) {
+        return;
+    }
+
+    state.statusSocket.onmessage = null;
+    state.statusSocket.onclose = null;
+    state.statusSocket.close();
+    state.statusSocket = null;
+}
+
+function getStatusWsUrl(userId) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/ws/status/${userId}`;
+}
+
+function connectToStatus(userId) {
+    teardownStatusSocket();
+
+    if (!userId) {
+        return;
+    }
+
+    const socket = new WebSocket(getStatusWsUrl(userId));
+    state.statusSocket = socket;
+
+    socket.onmessage = (event) => {
+        const payload = JSON.parse(event.data);
+        const activeChat = state.chats.find((item) => item.id === state.activeChatId);
+
+        if (!activeChat || state.activeParticipantId !== userId) {
+            return;
+        }
+
+        setChatSubtitle(activeChat, getStatusText(payload));
+    };
+
+    socket.onclose = () => {
+        if (state.statusSocket === socket) {
+            state.statusSocket = null;
+        }
+    };
+}
+
+function show_status(data) {
+    return getStatusText(data);
+    let user_status 
+
+    if (data.status === "online") {
+        user_status = "в сети 🟢";
+    } else {
+        user_status = formatLastSeen(data.last_seen);
+    }
+}
+
 function showChat(chat) {
     state.activeChatId = chat.id;
+    state.activeParticipantId = chat.participant?.id ?? null;
     chatTitle.textContent = chat.title;
     chatSubtitle.textContent = `Чат с @${chat.participant.username}`;
+    setChatSubtitle(chat);
+    connectToStatus(state.activeParticipantId);
     chatEmptyState.classList.add("hidden");
     chatView.classList.remove("hidden");
     renderChatList();
@@ -584,6 +683,7 @@ messageForm.addEventListener("submit", (event) => {
 
 window.addEventListener("beforeunload", teardownSocket);
 window.addEventListener("beforeunload", teardownNotificationSocket);
+window.addEventListener("beforeunload", teardownStatusSocket);
 
 if (isAuthenticated) {
     initAuthenticatedApp();

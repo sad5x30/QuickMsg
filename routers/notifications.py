@@ -8,7 +8,7 @@ from db import get_db
 from models.notifications_table import Notifications
 from models.users_models import Users
 from services.auth import get_current_user, get_current_user_ws
-from services.websocket import notification_manager, notify_user
+from services.websocket import broadcast_user_status, notification_manager, notify_user
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -54,9 +54,13 @@ async def notifications_websocket(
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
-        notification_manager.disconnect(user.id, websocket)
+        became_offline = notification_manager.disconnect(user.id, websocket)
+        if became_offline:
+            await broadcast_user_status(user.id)
     except Exception:
-        notification_manager.disconnect(user.id, websocket)
+        became_offline = notification_manager.disconnect(user.id, websocket)
+        if became_offline:
+            await broadcast_user_status(user.id)
         await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
 
 

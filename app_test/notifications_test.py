@@ -11,7 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from models.notifications_table import Notifications
 from routers.notifications import send_notification, serialize_notification
-from services.websocket import NotificationConnectionManager
+from services.websocket import NotificationConnectionManager, last_seen
 
 
 class FailingWebSocket:
@@ -106,3 +106,41 @@ async def test_notification_manager_removes_stale_connections():
 
     healthy_socket.send_json.assert_awaited_once_with({"text": "ping"})
     assert manager.active_connections == {4: [healthy_socket]}
+
+
+@pytest.mark.anyio
+async def test_notification_manager_connect_broadcasts_only_for_first_socket(monkeypatch):
+    manager = NotificationConnectionManager()
+    first_socket = AsyncMock()
+    second_socket = AsyncMock()
+    broadcast = AsyncMock()
+
+    monkeypatch.setattr("services.websocket.broadcast_user_status", broadcast)
+
+    await manager.connect(12, first_socket)
+    await manager.connect(12, second_socket)
+
+    assert len(manager.active_connections[12]) == 2
+    assert broadcast.await_count == 1
+
+
+def test_notification_manager_disconnect_sets_last_seen_only_on_last_socket():
+    manager = NotificationConnectionManager()
+    first_socket = object()
+    second_socket = object()
+    user_id = 33
+
+    last_seen.pop(user_id, None)
+    manager.active_connections[user_id] = [first_socket, second_socket]
+
+    became_offline = manager.disconnect(user_id, first_socket)
+
+    assert became_offline is False
+    assert user_id in manager.active_connections
+    assert user_id not in last_seen
+
+    became_offline = manager.disconnect(user_id, second_socket)
+
+    assert became_offline is True
+    assert user_id not in manager.active_connections
+    assert user_id in last_seen

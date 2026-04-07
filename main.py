@@ -10,6 +10,8 @@ from services.auth import router as auth_router
 from services.search import router as search_router
 from routers.create_chat import router as chat_router
 from routers.notifications import router as notifications_router
+from services.websocket import router as websocket_router
+
 from typing import Optional, List
 
 from sqlalchemy import select
@@ -25,6 +27,8 @@ app.include_router(auth_router)
 app.include_router(search_router, prefix="/users", tags=["search"])
 app.include_router(chat_router)
 app.include_router(notifications_router)
+app.include_router(websocket_router)
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request:Request):
     user = request.cookies.get("access_token")
