@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <title>QuickMsg</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="{{ url_for('static', path='styles/style.css') }}?v=20260328a" rel="stylesheet">
+    <link href="{{ url_for('static', path='styles/style.css') }}?v=20260406b" rel="stylesheet">
 </head>
 <body data-authenticated="{{ 'true' if is_authenticated else 'false' }}">
+    <div id="notification-center" class="notification-center" aria-live="polite" aria-atomic="true"></div>
     <div class="page-shell">
         <header>
             <div class="menu">
@@ -88,6 +89,6 @@
         </main>
     </div>
 
-    <script src="{{ url_for('static', path='scrypts/scrypts.js') }}?v=20260328a"></script>
+    <script src="{{ url_for('static', path='scrypts/scrypts.js') }}?v=20260406a"></script>
 </body>
 </html>

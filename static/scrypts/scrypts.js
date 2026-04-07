@@ -9,6 +9,7 @@ const chatSubtitle = document.getElementById("chat-subtitle");
 const messagesRoot = document.getElementById("messages");
 const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
+const notificationCenter = document.getElementById("notification-center");
 
 const isAuthenticated = document.body.dataset.authenticated === "true";
 
@@ -17,6 +18,9 @@ const state = {
     chats: [],
     currentUser: null,
     messageIds: new Set(),
+    shownNotificationIds: new Set(),
+    unreadNotificationCount: 0,
+    notificationSocket: null,
     searchRequestId: 0,
     socket: null,
 };
@@ -53,6 +57,97 @@ function formatRelativeDate(value) {
 
 function setSidebarStatus(message) {
     sidebarStatus.textContent = message;
+}
+
+function getNotificationTitle(notification) {
+    const author = notification.data?.sender_username;
+    return author
+        ? `Новое сообщение от @${author}`
+        : "Новое сообщение";
+}
+
+function getNotificationAccent(notification) {
+    const source = notification.data?.sender_username || notification.text || "Q";
+    return String(source).trim().charAt(0).toUpperCase() || "Q";
+}
+
+function renderNotificationToast(notification) {
+    if (!notificationCenter) {
+        return;
+    }
+
+    if (notification.id && state.shownNotificationIds.has(notification.id)) {
+        return;
+    }
+
+    if (notification.id) {
+        state.shownNotificationIds.add(notification.id);
+    }
+
+    const toast = document.createElement("article");
+    toast.className = "notification-toast";
+
+    const preview = notification.data?.text || notification.text || "Новое уведомление";
+    const author = notification.data?.sender_username
+        ? `@${notification.data.sender_username}`
+        : "QuickMsg";
+
+    toast.innerHTML = `
+        <div class="notification-toast-header">
+            <span class="notification-toast-title">Новое уведомление</span>
+            <button type="button" class="notification-toast-close" aria-label="Закрыть">×</button>
+        </div>
+        <p class="notification-toast-text">${escapeHtml(notification.text || "Новое сообщение")}</p>
+        <p class="notification-toast-meta">${escapeHtml(author)}: ${escapeHtml(preview)}</p>
+    `;
+
+    const removeToast = () => {
+        if (!toast.isConnected) {
+            return;
+        }
+
+        toast.classList.add("is-hiding");
+        window.setTimeout(() => {
+            toast.remove();
+        }, 220);
+    };
+
+    toast.querySelector(".notification-toast-close").addEventListener("click", removeToast);
+
+    if (notification.data?.chat_id) {
+        toast.addEventListener("click", async (event) => {
+            if (event.target.closest(".notification-toast-close")) {
+                return;
+            }
+
+            removeToast();
+            await openChat(Number(notification.data.chat_id));
+        });
+    }
+
+    notificationCenter.prepend(toast);
+    window.setTimeout(removeToast, 4500);
+}
+
+function refreshSidebarStatus() {
+    if (!isAuthenticated) {
+        setSidebarStatus("Войдите, чтобы открыть чаты");
+        return;
+    }
+
+    if (!state.chats.length) {
+        setSidebarStatus(
+            state.unreadNotificationCount
+                ? `Новых уведомлений: ${state.unreadNotificationCount}`
+                : "Создайте первый чат через поиск"
+        );
+        return;
+    }
+
+    const unreadSuffix = state.unreadNotificationCount
+        ? ` • новых уведомлений: ${state.unreadNotificationCount}`
+        : "";
+    setSidebarStatus(`Диалогов: ${state.chats.length}${unreadSuffix}`);
 }
 
 function renderSearchMessage(message) {
@@ -182,20 +277,38 @@ function teardownSocket() {
     }
 }
 
+function teardownNotificationSocket() {
+    if (state.notificationSocket) {
+        state.notificationSocket.onmessage = null;
+        state.notificationSocket.onclose = null;
+        state.notificationSocket.close();
+        state.notificationSocket = null;
+    }
+}
+
 function getWsUrl(chatId) {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${protocol}//${window.location.host}/chats/ws/${chatId}`;
+    return `${protocol}//${window.location.host}/chats/ws/chat/${chatId}`;
+}
+
+function getNotificationsWsUrl() {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/notifications/ws`;
 }
 
 function upsertChatPreview(message) {
     const chat = state.chats.find((item) => item.id === message.chat_id);
-    if (!chat) return;
+    if (!chat) {
+        loadChats();
+        return;
+    }
 
     chat.last_message = message.text;
     chat.last_message_created_at = message.created_at;
     chat.updated_at = message.created_at;
     state.chats.sort((left, right) => new Date(right.updated_at) - new Date(left.updated_at));
     renderChatList();
+    refreshSidebarStatus();
 }
 
 function connectToChat(chatId) {
@@ -257,11 +370,70 @@ async function loadCurrentUser() {
 async function loadChats() {
     state.chats = await fetchJson("/chats");
     renderChatList();
-    setSidebarStatus(
-        state.chats.length
-            ? `Диалогов: ${state.chats.length}`
-            : "Создайте первый чат через поиск"
-    );
+    refreshSidebarStatus();
+}
+
+async function loadNotifications() {
+    const notifications = await fetchJson("/notifications");
+    const unreadNotifications = notifications.filter((item) => !item.is_read);
+    state.unreadNotificationCount = unreadNotifications.length;
+    refreshSidebarStatus();
+    return unreadNotifications;
+}
+
+function showUnreadNotificationToasts(notifications) {
+    notifications
+        .slice()
+        .reverse()
+        .forEach((notification) => {
+            renderNotificationToast(notification);
+        });
+}
+
+async function markNotificationsRead(chatId = null) {
+    const url = chatId ? `/notifications/read?chat_id=${chatId}` : "/notifications/read";
+    await fetchJson(url, {
+        method: "POST",
+    });
+    if (chatId) {
+        await loadNotifications();
+        return;
+    }
+
+    state.unreadNotificationCount = 0;
+    refreshSidebarStatus();
+}
+
+function connectToNotifications() {
+    teardownNotificationSocket();
+
+    const socket = new WebSocket(getNotificationsWsUrl());
+    state.notificationSocket = socket;
+
+    socket.onmessage = async (event) => {
+        const notification = JSON.parse(event.data);
+        const messageData = notification.data || {};
+
+        if (!notification.is_read) {
+            state.unreadNotificationCount += 1;
+            refreshSidebarStatus();
+            renderNotificationToast(notification);
+        }
+
+        if (messageData.chat_id) {
+            await loadChats();
+
+            if (messageData.chat_id === state.activeChatId) {
+                await markNotificationsRead(messageData.chat_id);
+            }
+        }
+    };
+
+    socket.onclose = () => {
+        if (state.notificationSocket === socket) {
+            state.notificationSocket = null;
+        }
+    };
 }
 
 async function openChat(chatId) {
@@ -274,6 +446,7 @@ async function openChat(chatId) {
     const messages = await fetchJson(`/chats/${chatId}/messages`);
     renderMessages(messages);
     connectToChat(chatId);
+    await markNotificationsRead(chatId);
 }
 
 async function createDirectChat(userId) {
@@ -290,6 +463,7 @@ async function createDirectChat(userId) {
 
     state.chats.sort((left, right) => new Date(right.updated_at) - new Date(left.updated_at));
     renderChatList();
+    refreshSidebarStatus();
     await openChat(chat.id);
 }
 
@@ -336,11 +510,14 @@ async function initAuthenticatedApp() {
     try {
         await loadCurrentUser();
         await loadChats();
+        const unreadNotifications = await loadNotifications();
+        showUnreadNotificationToasts(unreadNotifications);
+        connectToNotifications();
 
         if (state.chats.length) {
             await openChat(state.chats[0].id);
         } else {
-            setSidebarStatus("Выберите пользователя через поиск");
+            refreshSidebarStatus();
         }
     } catch (error) {
         console.error(error);
@@ -406,6 +583,7 @@ messageForm.addEventListener("submit", (event) => {
 });
 
 window.addEventListener("beforeunload", teardownSocket);
+window.addEventListener("beforeunload", teardownNotificationSocket);
 
 if (isAuthenticated) {
     initAuthenticatedApp();

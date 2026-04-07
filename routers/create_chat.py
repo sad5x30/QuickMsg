@@ -11,6 +11,7 @@ from models.chat_models import Chat
 from models.members_table import ChatParticipant
 from models.messages import Message
 from models.users_models import Users
+from routers.notifications import send_notification
 from services.auth import get_current_user, get_current_user_ws
 from services.manager import manager
 
@@ -110,6 +111,16 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> list[Chat]:
     return result.scalars().all()
 
 
+async def get_chat_recipient_ids(chat_id: int, sender_id: int, db: AsyncSession) -> list[int]:
+    result = await db.execute(
+        select(ChatParticipant.user_id).where(
+            ChatParticipant.chat_id == chat_id,
+            ChatParticipant.user_id != sender_id,
+        )
+    )
+    return list(result.scalars().all())
+
+
 @router.get("/me")
 async def get_me(current_user: Users = Depends(get_current_user)):
     return {
@@ -189,7 +200,7 @@ async def get_chat_messages(
     return [serialize_message(message, current_user.id) for message in messages]
 
 
-@router.websocket("/ws/{chat_id}")
+@router.websocket("/ws/chat/{chat_id}")
 async def websocket_chat(
     websocket: WebSocket,
     chat_id: int,
@@ -227,6 +238,23 @@ async def websocket_chat(
             )
 
             await db.commit()
+
+            recipient_ids = await get_chat_recipient_ids(chat_id, user.id, db)
+            for recipient_id in recipient_ids:
+                await send_notification(
+                    db,
+                    user_id=recipient_id,
+                    type_="message",
+                    text=f"Новое сообщение от {user.username}",
+                    data={
+                        "chat_id": chat_id,
+                        "message_id": message.id,
+                        "sender_id": user.id,
+                        "sender_username": user.username,
+                        "text": message.text,
+                        "created_at": created_at.isoformat(),
+                    },
+                )
 
             await manager.send_to_chat(
                 chat_id,
