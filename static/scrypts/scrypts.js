@@ -10,6 +10,7 @@ const messagesRoot = document.getElementById("messages");
 const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
 const notificationCenter = document.getElementById("notification-center");
+const swapButton = document.getElementById("swap-button");
 
 const isAuthenticated = document.body.dataset.authenticated === "true";
 
@@ -26,6 +27,38 @@ const state = {
     socket: null,
     statusSocket: null,
 };
+
+const THEME_STORAGE_KEY = "quickmsg-theme";
+
+function applyTheme(theme) {
+    const isDarkTheme = theme === "dark";
+    document.body.classList.toggle("dark-theme", isDarkTheme);
+
+    if (!swapButton) {
+        return;
+    }
+
+    swapButton.textContent = isDarkTheme ? "☀️" : "🌙";
+    swapButton.setAttribute(
+        "aria-label",
+        isDarkTheme ? "Переключить на светлую тему" : "Переключить на темную тему"
+    );
+}
+
+function initThemeToggle() {
+    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    applyTheme(savedTheme === "dark" ? "dark" : "light");
+
+    if (!swapButton) {
+        return;
+    }
+
+    swapButton.addEventListener("click", () => {
+        const nextTheme = document.body.classList.contains("dark-theme") ? "light" : "dark";
+        localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+        applyTheme(nextTheme);
+    });
+}
 
 function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, (char) => (
@@ -690,3 +723,4 @@ if (isAuthenticated) {
 } else {
     updateGuestState();
 }
+

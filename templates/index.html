@@ -4,9 +4,18 @@
     <meta charset="UTF-8">
     <title>QuickMsg</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="{{ url_for('static', path='styles/style.css') }}?v=20260406b" rel="stylesheet">
+    <link href="{{ url_for('static', path='styles/style.css') }}?v=20260407a" rel="stylesheet">
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem("quickmsg-theme");
+
+            if (savedTheme === "dark") {
+                document.documentElement.classList.add("dark-theme");
+            }
+        })();
+    </script>
 </head>
-<body data-authenticated="{{ 'true' if is_authenticated else 'false' }}">
+<body class="" data-authenticated="{{ 'true' if is_authenticated else 'false' }}">
     <div id="notification-center" class="notification-center" aria-live="polite" aria-atomic="true"></div>
     <div class="page-shell">
         <header>
@@ -24,8 +33,11 @@
                         <a href="/login" class="nav-link">Логин</a>
                         <a href="/register" class="nav-link nav-link-accent">Регистрация</a>
                     {% endif %}
+                        <button id="swap-button" type="button" aria-label="Переключить тему">🌙</button>
                 </div>
             </div>
+        
+            
         </header>
 
         <section class="hero-section">
@@ -89,6 +101,37 @@
         </main>
     </div>
 
-    <script src="{{ url_for('static', path='scrypts/scrypts.js') }}?v=20260406a"></script>
+    <script>
+        (function () {
+            const swapButton = document.getElementById("swap-button");
+
+            function syncThemeButton() {
+                if (!swapButton) {
+                    return;
+                }
+
+                const isDarkTheme = document.documentElement.classList.contains("dark-theme");
+                swapButton.textContent = isDarkTheme ? "☀️" : "🌙";
+                swapButton.setAttribute(
+                    "aria-label",
+                    isDarkTheme ? "Переключить на светлую тему" : "Переключить на темную тему"
+                );
+            }
+
+            syncThemeButton();
+
+            if (!swapButton) {
+                return;
+            }
+
+            swapButton.addEventListener("click", function () {
+                const nextIsDarkTheme = !document.documentElement.classList.contains("dark-theme");
+                document.documentElement.classList.toggle("dark-theme", nextIsDarkTheme);
+                localStorage.setItem("quickmsg-theme", nextIsDarkTheme ? "dark" : "light");
+                syncThemeButton();
+            });
+        })();
+    </script>
+    <script src="{{ url_for('static', path='scrypts/scrypts.js') }}?v=20260407b"></script>
 </body>
 </html>
