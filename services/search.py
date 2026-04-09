@@ -21,6 +21,7 @@ async def search(query: str, db: AsyncSession = Depends(get_db)):
         {
             "id": user.id,
             "username": user.username,
+            "avatar_url": user.avatar_url,
         }
         for user in users
     ]

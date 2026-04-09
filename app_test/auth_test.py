@@ -1,8 +1,10 @@
 from pathlib import Path
 import sys
+from io import BytesIO
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -10,7 +12,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from main import app
 from models.users_models import Users
-from services.auth import get_db, hash_password
+import services.auth as auth_service
+from services.auth import get_db, get_current_user, hash_password
 
 
 class FakeResult:
@@ -130,3 +133,54 @@ async def test_registration_creates_user_and_redirects_to_login(client, fake_ses
     assert saved_user.username == "sad"
     assert saved_user.password != "sosal?"
     assert saved_user.password.startswith("$2")
+
+
+@pytest.mark.anyio
+async def test_upload_avatar_normalizes_large_image(client, fake_session):
+    user = create_user(fake_session, "alice", "secret123")
+    upload_dir = PROJECT_ROOT / "app_test" / "_tmp_avatars"
+    if upload_dir.exists():
+        for existing_file in upload_dir.glob("*"):
+            existing_file.unlink()
+    else:
+        upload_dir.mkdir(parents=True)
+
+    async def override_current_user():
+        return user
+
+    app.dependency_overrides[get_current_user] = override_current_user
+
+    original_upload_dir = auth_service.AVATAR_UPLOAD_DIR
+    original_url_prefix = auth_service.AVATAR_URL_PREFIX
+    auth_service.AVATAR_UPLOAD_DIR = upload_dir
+    auth_service.AVATAR_URL_PREFIX = "/static/test-avatars/"
+
+    image_buffer = BytesIO()
+    Image.new("RGB", (1000, 700), color="red").save(image_buffer, format="JPEG")
+    image_buffer.seek(0)
+
+    try:
+        response = await client.post(
+            "/profile/avatar",
+            files={"avatar": ("avatar.jpg", image_buffer.getvalue(), "image/jpeg")},
+        )
+    finally:
+        auth_service.AVATAR_UPLOAD_DIR = original_upload_dir
+        auth_service.AVATAR_URL_PREFIX = original_url_prefix
+        app.dependency_overrides.pop(get_current_user, None)
+
+    try:
+        assert response.status_code == 303
+        assert response.headers["location"] == "/profile"
+        assert user.avatar_url is not None
+        assert user.avatar_url.startswith("/static/test-avatars/")
+
+        saved_files = list(upload_dir.glob("*"))
+        assert len(saved_files) == 1
+
+        with Image.open(saved_files[0]) as saved_avatar:
+            assert saved_avatar.size == auth_service.AVATAR_IMAGE_SIZE
+    finally:
+        for existing_file in upload_dir.glob("*"):
+            existing_file.unlink()
+        upload_dir.rmdir()

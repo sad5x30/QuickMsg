@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -20,7 +20,7 @@
         <header>
             <div class="menu">
                 <div class="brand-block">
-                    <div class="brand-name">QuickMsg | Профиль</div>
+                    <div class="brand-name"><a href="/">QuickMsg</a> | Профиль</div>
                     <p class="brand-copy">Данные вашего аккаунта и быстрые действия.</p>
                 </div>
 
@@ -38,6 +38,41 @@
                     <span class="eyebrow">Account</span>
                     <h1>Ваш профиль</h1>
                     <p>Здесь отображается основная информация об аккаунте.</p>
+
+                    <div class="profile-avatar-section">
+                        {% if current_user.avatar_url %}
+                            <img
+                                src="{{ current_user.avatar_url }}"
+                                alt="Аватар {{ current_user.username }}"
+                                class="profile-avatar-preview"
+                                width="120"
+                                height="120"
+                                loading="lazy"
+                                decoding="async"
+                            >
+                        {% else %}
+                            <div class="profile-avatar-fallback">
+                                {{ current_user.username[0] | upper }}
+                            </div>
+                        {% endif %}
+
+                        <form
+                            method="post"
+                            action="/profile/avatar"
+                            enctype="multipart/form-data"
+                            class="avatar-upload-form"
+                        >
+                            <label for="avatar">Аватар</label>
+                            <input
+                                id="avatar"
+                                name="avatar"
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp,image/gif"
+                                required
+                            >
+                            <button type="submit" class="submit-button">Загрузить аватар</button>
+                        </form>
+                    </div>
                 </div>
 
                 <div class="auth-card">
@@ -51,7 +86,7 @@
                         <label>Дата регистрации</label>
                         <input type="text" value="{{ current_user.created_at.strftime('%d.%m.%Y %H:%M') if current_user.created_at else '—' }}" readonly>
 
-                        <a href="/" class="submit-button" style="text-align: center; text-decoration: none;">Перейти к чатам</a>
+                        <a href="/" class="submit-button profile-open-chat-link">Перейти к чатам</a>
                     </div>
                 </div>
             </div>

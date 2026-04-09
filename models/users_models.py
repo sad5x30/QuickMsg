@@ -11,6 +11,7 @@ class Users(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, index=True, nullable=False, unique=True)
     password = Column(String, nullable=False)
+    avatar_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     members = relationship("ChatParticipant", back_populates="user")

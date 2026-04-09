@@ -32,6 +32,7 @@ const THEME_STORAGE_KEY = "quickmsg-theme";
 
 function applyTheme(theme) {
     const isDarkTheme = theme === "dark";
+    document.documentElement.classList.toggle("dark-theme", isDarkTheme);
     document.body.classList.toggle("dark-theme", isDarkTheme);
 
     if (!swapButton) {
@@ -189,6 +190,15 @@ function renderSearchMessage(message) {
     searchResults.innerHTML = `<p class="search-message">${escapeHtml(message)}</p>`;
 }
 
+function renderAvatar(username, avatarUrl, className) {
+    if (avatarUrl) {
+        return `<img src="${escapeHtml(avatarUrl)}" alt="Аватар ${escapeHtml(username)}" class="${className}">`;
+    }
+
+    const fallbackLetter = String(username || "?").trim().charAt(0).toUpperCase() || "?";
+    return `<div class="${className} ${className}--fallback">${escapeHtml(fallbackLetter)}</div>`;
+}
+
 function renderSearchResults(users) {
     if (!users.length) {
         renderSearchMessage("Ничего не найдено.");
@@ -202,12 +212,17 @@ function renderSearchResults(users) {
                 ? '<span class="search-chip">Это вы</span>'
                 : `<button type="button" class="search-action" data-chat-user-id="${user.id}" data-chat-username="${escapeHtml(user.username)}">Открыть чат</button>`;
 
+            const avatar = renderAvatar(user.username, user.avatar_url, "user-avatar user-avatar--search");
+
             return `
                 <article class="search-item">
-                    <div>
+                    <div class="search-item-user">
+                        ${avatar}
+                        <div>
                         <strong>${escapeHtml(user.username)}</strong>
                         <p>Найденный пользователь</p>
                     </div>
+                        </div>
                     ${button}
                 </article>
             `;
@@ -231,11 +246,19 @@ function renderChatList() {
             const isActive = chat.id === state.activeChatId;
             const preview = chat.last_message || "Диалог создан. Можно писать первым.";
             const meta = chat.last_message_created_at || chat.updated_at;
+            const avatar = renderAvatar(
+                chat.participant?.username || chat.title,
+                chat.participant?.avatar_url,
+                "user-avatar user-avatar--chat-list"
+            );
 
             return `
                 <button type="button" class="chat-list-item ${isActive ? "is-active" : ""}" data-chat-id="${chat.id}">
                     <div class="chat-list-row">
-                        <strong>${escapeHtml(chat.title)}</strong>
+                        <div class="chat-list-user">
+                            ${avatar}
+                            <strong>${escapeHtml(chat.title)}</strong>
+                        </div>
                         <span>${escapeHtml(formatRelativeDate(meta))}</span>
                     </div>
                     <p>${escapeHtml(preview)}</p>
@@ -723,4 +746,3 @@ if (isAuthenticated) {
 } else {
     updateGuestState();
 }
-

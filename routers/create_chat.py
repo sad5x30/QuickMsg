@@ -89,6 +89,7 @@ async def serialize_chat(chat: Chat, current_user_id: int, db: AsyncSession) -> 
         "participant": {
             "id": other_user.id if other_user else current_user_id,
             "username": other_user.username if other_user else "Вы",
+            "avatar_url": other_user.avatar_url if other_user else None,
         },
         "last_message": last_message.text if last_message else "",
         "last_message_created_at": (
@@ -126,6 +127,7 @@ async def get_me(current_user: Users = Depends(get_current_user)):
     return {
         "id": current_user.id,
         "username": current_user.username,
+        "avatar_url": current_user.avatar_url,
     }
 
 
