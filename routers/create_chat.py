@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
@@ -78,7 +77,11 @@ def serialize_message(message: Message, current_user_id: int) -> dict:
 
 async def serialize_chat(chat: Chat, current_user_id: int, db: AsyncSession) -> dict:
     other_user = next(
-        (participant.user for participant in chat.participants if participant.user_id != current_user_id),
+        (
+            participant.user
+            for participant in chat.participants
+            if participant.user_id != current_user_id
+        ),
         None,
     )
     last_message = await get_chat_last_message(chat.id, db)
@@ -215,21 +218,50 @@ async def websocket_chat(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    await manager.connect(chat_id, websocket)
+    await manager.connect(chat_id, user.id, websocket)
 
     try:
         while True:
-            data = (await websocket.receive_text()).strip()
-            if not data:
+            data = await websocket.receive_json()
+            event_type = data.get("type")
+
+            if not event_type:
                 continue
 
-            message = Message(
-                chat_id=chat_id,
-                sender_id=user.id,
-                text=data,
-            )
-            db.add(message)
-            await db.flush()
+            if event_type == "message":
+                message = Message(
+                    chat_id=chat_id,
+                    sender_id=user.id,
+                    text=data.get("text"),
+                )
+
+                db.add(message)
+                await db.flush()
+
+            elif event_type == "typing_start":
+                await manager.send_to_chat_except(
+                    chat_id,
+                    exclude_user_id=user.id,
+                    payload={
+                        "type": "typing_start",
+                        "user_id": user.id,
+                    },
+                )
+                continue
+
+            elif event_type == "typing_stop":
+                await manager.send_to_chat_except(
+                    chat_id,
+                    exclude_user_id=user.id,
+                    payload={
+                        "type": "typing_stop",
+                        "user_id": user.id,
+                    },
+                )
+                continue
+
+            else:
+                continue
 
             created_at = message.created_at or datetime.utcnow()
 
@@ -260,15 +292,23 @@ async def websocket_chat(
 
             await manager.send_to_chat(
                 chat_id,
-                json.dumps(
-                    {
-                        "id": message.id,
-                        "chat_id": chat_id,
-                        "text": message.text,
-                        "sender_id": user.id,
-                        "created_at": created_at.isoformat(),
-                    }
-                ),
+                {
+                    "type": "message",
+                    "id": message.id,
+                    "chat_id": chat_id,
+                    "text": message.text,
+                    "sender_id": user.id,
+                    "created_at": created_at.isoformat(),
+                },
+            )
+
+            await manager.send_to_chat_except(
+                chat_id,
+                exclude_user_id=user.id,
+                payload={
+                    "type": "typing_stop",
+                    "user_id": user.id,
+                },
             )
 
     except WebSocketDisconnect:
@@ -276,3 +316,4 @@ async def websocket_chat(
     except Exception:
         manager.disconnect(chat_id, websocket)
         await db.rollback()
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)

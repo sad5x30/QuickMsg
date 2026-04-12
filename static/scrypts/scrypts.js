@@ -11,8 +11,10 @@ const messageForm = document.getElementById("message-form");
 const messageInput = document.getElementById("message-input");
 const notificationCenter = document.getElementById("notification-center");
 const swapButton = document.getElementById("swap-button");
+const input = document.getElementById("message-input");
 
 const isAuthenticated = document.body.dataset.authenticated === "true";
+
 
 const state = {
     activeChatId: null,
@@ -26,9 +28,66 @@ const state = {
     searchRequestId: 0,
     socket: null,
     statusSocket: null,
+    activeChatStatusText: null,
+    isPeerTyping: false,
+    isTyping: false,
+    typingTimer: null,
 };
 
 const THEME_STORAGE_KEY = "quickmsg-theme";
+
+function prints() {
+    input.addEventListener("input", () => {
+        if (!state.activeChatId || !state.currentUser) {
+            return;
+        }
+
+        if (!state.isTyping) {
+            if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+                state.socket.send(JSON.stringify({
+                    type: "typing_start",
+                    chat_id: state.activeChatId,
+                    user_id: state.currentUser.id
+                }));
+            }
+            state.isTyping = true;
+        }
+
+        clearTimeout(state.typingTimer);
+
+        state.typingTimer = setTimeout(() => {
+            if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+                state.socket.send(JSON.stringify({
+                    type: "typing_stop",
+                    chat_id: state.activeChatId,
+                    user_id: state.currentUser.id
+                }));
+            }
+            state.isTyping = false;
+        }, 2000);
+    });
+}
+
+function stopTypingIndicator() {
+    clearTimeout(state.typingTimer);
+    state.typingTimer = null;
+
+    if (!state.isTyping) {
+        return;
+    }
+
+    if (state.socket && state.socket.readyState === WebSocket.OPEN && state.activeChatId && state.currentUser) {
+        state.socket.send(JSON.stringify({
+            type: "typing_stop",
+            chat_id: state.activeChatId,
+            user_id: state.currentUser.id
+        }));
+    }
+
+    state.isTyping = false;
+}
+
+prints();
 
 function applyTheme(theme) {
     const isDarkTheme = theme === "dark";
@@ -356,6 +415,20 @@ function setChatSubtitle(chat, statusText = null) {
         : `Чат с @${chat.participant.username}`;
 }
 
+function renderActiveChatSubtitle() {
+    const activeChat = state.chats.find((item) => item.id === state.activeChatId);
+    if (!activeChat) {
+        return;
+    }
+
+    if (state.isPeerTyping) {
+        chatSubtitle.textContent = `@${activeChat.participant.username} печатает...`;
+        return;
+    }
+
+    setChatSubtitle(activeChat, state.activeChatStatusText);
+}
+
 function teardownStatusSocket() {
     if (!state.statusSocket) {
         return;
@@ -374,6 +447,8 @@ function getStatusWsUrl(userId) {
 
 function connectToStatus(userId) {
     teardownStatusSocket();
+    state.activeChatStatusText = null;
+    state.isPeerTyping = false;
 
     if (!userId) {
         return;
@@ -390,7 +465,8 @@ function connectToStatus(userId) {
             return;
         }
 
-        setChatSubtitle(activeChat, getStatusText(payload));
+        state.activeChatStatusText = getStatusText(payload);
+        renderActiveChatSubtitle();
     };
 
     socket.onclose = () => {
@@ -412,11 +488,14 @@ function show_status(data) {
 }
 
 function showChat(chat) {
+    stopTypingIndicator();
+    state.isPeerTyping = false;
+    state.activeChatStatusText = null;
     state.activeChatId = chat.id;
     state.activeParticipantId = chat.participant?.id ?? null;
     chatTitle.textContent = chat.title;
     chatSubtitle.textContent = `Чат с @${chat.participant.username}`;
-    setChatSubtitle(chat);
+    renderActiveChatSubtitle();
     connectToStatus(state.activeParticipantId);
     chatEmptyState.classList.add("hidden");
     chatView.classList.remove("hidden");
@@ -425,6 +504,7 @@ function showChat(chat) {
 
 function teardownSocket() {
     if (state.socket) {
+        stopTypingIndicator();
         state.socket.onmessage = null;
         state.socket.onclose = null;
         state.socket.close();
@@ -469,11 +549,37 @@ function upsertChatPreview(message) {
 function connectToChat(chatId) {
     teardownSocket();
 
+
     const socket = new WebSocket(getWsUrl(chatId));
     state.socket = socket;
 
     socket.onmessage = (event) => {
         const payload = JSON.parse(event.data);
+        if (payload.type === "typing_start") {
+            state.isPeerTyping = true;
+            renderActiveChatSubtitle();
+            return;
+            const activeChat = state.chats.find((item) => item.id === state.activeChatId);
+
+            if (activeChat) {
+                chatSubtitle.textContent = `@${activeChat.participant.username} печатает...`;
+            }
+            return;
+        }
+
+        if (payload.type === "typing_stop") {
+            state.isPeerTyping = false;
+            renderActiveChatSubtitle();
+            return;
+            const activeChat = state.chats.find((item) => item.id === state.activeChatId);
+
+            if (activeChat) {
+                setChatSubtitle(activeChat);
+            }
+            return;
+        }
+
+        state.isPeerTyping = false;
         const message = {
             ...payload,
             is_own: state.currentUser && payload.sender_id === state.currentUser.id,
@@ -481,6 +587,7 @@ function connectToChat(chatId) {
 
         if (payload.chat_id === state.activeChatId) {
             appendMessage(message);
+            renderActiveChatSubtitle();
         }
 
         upsertChatPreview(message);
@@ -733,7 +840,12 @@ messageForm.addEventListener("submit", (event) => {
         return;
     }
 
-    state.socket.send(text);
+    stopTypingIndicator();
+    state.socket.send(JSON.stringify({
+        type:"message",
+        text: text,
+        chat_id: state.activeChatId
+    }));
     messageInput.value = "";
 });
 
